@@ -13,6 +13,8 @@ const upload = multer({
     },
   }),
 });
+const detectProduct = require("./helpers/detectProduct");
+const product = require("./models/product");
 const port = 8090;
 
 app.use(express.json());
@@ -37,7 +39,15 @@ app.get("/products", (req, res) => {
   models.Product.findAll({
     //findOne을 사용하면 1개씩 검색 가능
     order: [["createdAt", "DESC"]], //order 정렬을 사용하여 최신순으로 나열
-    attributes: ["id", "name", "price", "createdAt", "seller", "imageUrl"], //attributes를 주어서 원하는 컬럼만 검색가능
+    attributes: [
+      "id",
+      "name",
+      "price",
+      "createdAt",
+      "seller",
+      "imageUrl",
+      "soldout",
+    ], //attributes를 주어서 원하는 컬럼만 검색가능
   })
     .then((result) => {
       console.log("PRODUCTS : ", result);
@@ -56,23 +66,26 @@ app.post("/products", (req, res) => {
   if (!name || !description || !price || !seller || !imageUrl) {
     res.status(400).send("모든 필드를 입력해주세요");
   }
-  models.Product.create({
-    name,
-    description,
-    price,
-    seller,
-    imageUrl,
-  })
-    .then((result) => {
-      console.log("상품 생성 결과 : ", result);
-      res.send({
-        result,
-      });
+  detectProduct(imageUrl, (type) => {
+    models.Product.create({
+      name,
+      description,
+      price,
+      seller,
+      imageUrl,
+      type,
     })
-    .catch((error) => {
-      console.error(error);
-      res.status(400).send("상품 업로드에 문제가 발생했습니다");
-    });
+      .then((result) => {
+        console.log("상품 생성 결과 : ", result);
+        res.send({
+          result,
+        });
+      })
+      .catch((error) => {
+        console.error(error);
+        res.status(400).send("상품 업로드에 문제가 발생했습니다");
+      });
+  });
 });
 
 app.get("/products/:id", (req, res) => {
@@ -102,6 +115,57 @@ app.post("/image", upload.single("image"), (req, res) => {
   res.send({
     imageUrl: file.path, //image의 위치
   });
+});
+
+app.post("/purchase/:id", (req, res) => {
+  const { id } = req.params;
+  models.Product.update(
+    {
+      soldout: 1,
+    },
+    {
+      where: {
+        id,
+      },
+    }
+  )
+    .then((result) => {
+      res.send({
+        result: true,
+      });
+    })
+    .catch((error) => {
+      console.error(error);
+      res.status(500).send("에러가 발생했습니다.");
+    });
+});
+
+app.get("/products/:id/recommendation", (req, res) => {
+  const { id } = req.params;
+  models.Product.findOne({
+    where: {
+      id,
+    },
+  })
+    .then((product) => {
+      const type = product.type;
+      models.Product.findAll({
+        where: {
+          type,
+          id: {
+            [models.Sequelize.Op.ne]: id,
+          },
+        },
+      }).then((products) => {
+        res.send({
+          products,
+        });
+      });
+    })
+    .catch((error) => {
+      console.error(error);
+      res.status(500).send("에러가 발생했습니다.");
+    });
 });
 
 app.listen(port, () => {
